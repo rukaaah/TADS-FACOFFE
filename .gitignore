@@ -1,0 +1,37 @@
+# Arquivos do sistema operacional
+.DS_Store
+Thumbs.db
+
+# Configurações de IDE
+.vscode/
+.idea/
+
+# Logs
+*.log
+
+# Arquivos temporários
+*.tmp
+*.temp
+
+# Variáveis de ambiente e segredos
+.env
+.env.local
+.env.*.local
+
+# Chaves e certificados
+*.pem
+*.key
+*.p12
+*.crt
+
+__pycache__/
+*.pyc
+venv/
+.env/
+.venv/
+
+*.sqlite
+*.db
+.env
+.vscode/
+.idea/

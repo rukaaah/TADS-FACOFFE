@@ -1,0 +1,24 @@
+
+# --- Núcleo da API e Validação ---
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+pydantic==2.7.4
+
+# --- Database per Service (Persistência) ---
+sqlalchemy==2.0.30
+alembic==1.13.1
+
+# --- Segurança e Integração Keycloak ---
+python-jose[cryptography]==3.3.0
+python-multipart==0.0.9
+
+# --- Mensageria e Eventos (Asynchronous Messaging) ---
+aio-pika==9.4.1
+
+# --- Resiliência (Retry Pattern) ---
+tenacity==8.3.0
+
+# --- Qualidade e Testes ---
+pytest==8.2.2
+httpx==0.27.0
+pytest-asyncio==0.23.7
