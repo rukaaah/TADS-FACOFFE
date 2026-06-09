@@ -60,3 +60,13 @@ class ForbiddenError(DomainError):
 class RepositoryError(DomainError):
 	code = "repository_error"
 	http_status = 500
+
+
+class QuotaHasActiveParticipationsError(ConflictError):
+	"""Erro lançado quando se tenta desativar uma cota que possui participações ativas."""
+	code = "quota_has_active_participations"
+
+
+class UserAlreadyHasActiveParticipationError(ConflictError):
+	"""Erro lançado quando um utilizador tenta aderir a uma cota mas já possui participação ativa em outra cota."""
+	code = "user_already_has_active_participation"
