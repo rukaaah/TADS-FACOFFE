@@ -107,6 +107,7 @@ def join_participation_quota(
 
 # TODO EQUIPE: Implementar GET /participations 
 # Filtros: userId, quotaId, status, cycle, page, size.
+@router.get("/participations", response_model=ParticipationPage, summary="Listar participações")
 def list_participations(
     userId: Optional[str] = Query(None),
     quotaId: Optional[str] = Query(None),
@@ -118,6 +119,7 @@ def list_participations(
     pass
 
 # TODO EQUIPE: Implementar GET /participations/{participationId}
+@router.get("/participations/{participationId}", response_model=Participation, summary="Obter participação por identificador")
 def get_participation_by_id(
     participationId: str = Path(...)
 ):
@@ -129,6 +131,6 @@ def get_participation_by_id(
 def cancel_participation(
     participationId: str = Path(...),
     payload: CancelParticipationRequest = None,
-    user_payload: dict = Depends(require_role(["MANAGER", "PARTICIPANT"]))
+    user_payload: dict = Depends(require_manager_or_self)
 ):
     pass
