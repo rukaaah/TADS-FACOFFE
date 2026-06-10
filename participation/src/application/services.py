@@ -263,11 +263,11 @@ def process_user_deactivation(
     participacoes_ativas = repo.get_all_active_participations_by_user(user_id)
 
     for participacao in participacoes_ativas:
-        participacao.status = "CANCELLED"
-        participacao.cancelled_at = datetime.now(timezone.utc)
+        payload = CancelParticipationRequest(
+            requestedBy="SYSTEM_EVENT",
+            reason=f"Automático via Evento (Deactivated): {reason}",
+            effectiveCycle=None
+        )
         
-        # Auditoria forçada pelo evento da fila
-        participacao.cancellation_reason = f"Automático via Evento (Deactivated): {reason}"
-        participacao.cancelled_by = "SYSTEM_EVENT"
-        
-        repo.save_participation(participacao)
+        # Reaproveitamos a função central que já contém as regras de negócio de cancelamento
+        cancel_participation(participacao.id, payload, repo)
