@@ -125,8 +125,13 @@ def update_quota(
         if payload.amount < 0:
             raise ValidationError("O valor da cota não pode ser negativo.")
         cota.amount = payload.amount
+        
+    # CORREÇÃO: Evita a porta dos fundos reaproveitando a RN03
     if payload.active is not None:
-        cota.status = "ACTIVE" if payload.active else "INACTIVE"
+        if payload.active is False and cota.status == "ACTIVE":
+            return deactivate_quota(quota_id, repo)
+        elif payload.active is True:
+            cota.status = "ACTIVE"
 
     return repo.save_quota(cota)
 
@@ -219,9 +224,10 @@ def get_participation(participation_id: str, repo: ParticipationRepository) -> P
     return participation
 
 
+# CORREÇÃO: Tipagem do CancelParticipationRequest tornou-se obrigatória
 def cancel_participation(
     participation_id: str, 
-    payload: CancelParticipationRequest | None,
+    payload: CancelParticipationRequest,
     repo: ParticipationRepository
 ) -> ParticipationMembership:
     """Realiza o cancelamento de uma participação ativa."""
@@ -233,7 +239,35 @@ def cancel_participation(
     adesao.status = "CANCELLED"
     adesao.cancelled_at = datetime.now(timezone.utc)
     
-    if payload and payload.effectiveCycle:
+    # CORREÇÃO: Populando as colunas de auditoria conforme exigência do Contrato
+    adesao.cancellation_reason = payload.reason
+    adesao.cancelled_by = payload.requestedBy
+    
+    if payload.effectiveCycle:
         adesao.end_cycle = payload.effectiveCycle
 
     return repo.save_participation(adesao)
+
+# ==========================================
+# HOOKS DE INTEGRAÇÃO (RABBITMQ CONSUMERS)
+# ==========================================
+def process_user_deactivation(
+    user_id: str,
+    reason: str,
+    repo: ParticipationRepository
+) -> None:
+    """
+    CORREÇÃO: Reage ao evento da fila 'users.deactivated' cancelando 
+    automaticamente todas as participações ativas do usuário.
+    """
+    participacoes_ativas = repo.get_all_active_participations_by_user(user_id)
+
+    for participacao in participacoes_ativas:
+        participacao.status = "CANCELLED"
+        participacao.cancelled_at = datetime.now(timezone.utc)
+        
+        # Auditoria forçada pelo evento da fila
+        participacao.cancellation_reason = f"Automático via Evento (Deactivated): {reason}"
+        participacao.cancelled_by = "SYSTEM_EVENT"
+        
+        repo.save_participation(participacao)
