@@ -25,7 +25,7 @@ from src.api.schemas import (
 )
 
 # 2. Importar as barreiras de segurança (RBAC)
-from src.api.security import require_role, require_manager_or_self
+from src.api.security import require_role, get_current_user_payload
 
 # 3. Importar os serviços da camada de aplicação (services)
 # from src.application import services
@@ -130,7 +130,16 @@ def get_participation_by_id(
 @router.patch("/participations/{participationId}", response_model=Participation, summary="Cancelar participação")
 def cancel_participation(
     participationId: str = Path(...),
-    payload: CancelParticipationRequest = None,
-    user_payload: dict = Depends(require_manager_or_self)
+    payload: CancelParticipationRequest = ...,
+    user_payload: dict = Depends(get_current_user_payload)
 ):
+    pass
+
+@router.get("/quotas/{quotaId}", response_model=ParticipationQuota, summary="Obter cota de participação por identificador")
+def get_quota_by_id(
+    quotaId: str = Path(..., description="ID da cota a ser localizada")
+):
+    """
+    Ref: api-docs.yaml -> GET /participation/quotas/{quotaId}
+    """
     pass
