@@ -3,6 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from decimal import Decimal
 from src.domain.models import Base, ParticipationQuota, ParticipationMembership
+from sqlalchemy.exc import IntegrityError
 
 
 @pytest.fixture
@@ -64,9 +65,11 @@ def test_should_not_delete_memberships_when_quota_is_deleted(db_session):
     db_session.commit()
 
     # Act - Deletando a cota fisicamente (Simulação de erro operacional)
-    db_session.delete(cota)
-    db_session.commit()
-
+    with pytest.raises(IntegrityError):
+        db_session.delete(cota)
+        db_session.commit()
+        
+    db_session.rollback()
     # Assert - A adesão PRECISA continuar existindo no banco de dados!
     total_adesoes_restantes = db_session.query(ParticipationMembership).count()
     
