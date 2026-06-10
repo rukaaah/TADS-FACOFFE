@@ -115,6 +115,7 @@ Exemplo:
 
 ```text
 userId
+
 ```
 
 é armazenado apenas como referência de domínio.
@@ -156,32 +157,37 @@ Integrações externas utilizam mecanismos de retentativa automática.
 
 ## 4.1 Entidade ParticipationQuota
 
-| Campo     | Tipo         | Descrição                        |
-| --------- | ------------ | -------------------------------- |
-| id        | VARCHAR(50)  | Identificador da cota            |
-| name      | VARCHAR(255) | Nome da cota                     |
-| condition | VARCHAR(50)  | DAILY ou SPORADIC                |
-| items     | VARCHAR(50)  | ALL, COFFEE ou COOKIES           |
-| amount    | DECIMAL      | Valor da contribuição            |
-| status    | VARCHAR(20)  | ACTIVE ou INACTIVE               |
-| createdBy | VARCHAR(50)  | Usuário responsável pela criação |
-| createdAt | TIMESTAMP    | Data de criação                  |
-| updatedAt | TIMESTAMP    | Última atualização               |
+| Campo | Tipo | Descrição |
+| --- | --- | --- |
+| id | VARCHAR(50) | Identificador da cota |
+| name | VARCHAR(255) | Nome da cota |
+| description | VARCHAR(500) | Descrição detalhada da cota (Opcional) |
+| condition | VARCHAR(50) | DAILY ou SPORADIC |
+| items | VARCHAR(50) | ALL, COFFEE ou COOKIES |
+| amount | DECIMAL | Valor da contribuição |
+| status | VARCHAR(20) | ACTIVE ou INACTIVE |
+| createdBy | VARCHAR(50) | Usuário responsável pela criação |
+| createdAt | TIMESTAMP | Data de criação |
+| updatedAt | TIMESTAMP | Última atualização |
 
 ---
 
 ## 4.2 Entidade ParticipationMembership
 
-| Campo         | Tipo        | Descrição                          |
-| ------------- | ----------- | ---------------------------------- |
-| id            | VARCHAR(50) | Identificador da adesão            |
-| userId        | VARCHAR(50) | Usuário participante               |
-| quotaId       | VARCHAR(50) | Cota vinculada                     |
-| status        | VARCHAR(20) | ACTIVE ou CANCELLED                |
-| startCycle    | VARCHAR(7)  | Competência inicial                |
-| quotaSnapshot | JSON/TEXT   | Cópia da cota no momento da adesão |
-| createdAt     | TIMESTAMP   | Data de criação                    |
-| updatedAt     | TIMESTAMP   | Última atualização                 |
+| Campo | Tipo | Descrição |
+| --- | --- | --- |
+| id | VARCHAR(50) | Identificador da adesão |
+| userId | VARCHAR(50) | Usuário participante |
+| quotaId | VARCHAR(50) | Cota vinculada |
+| status | VARCHAR(20) | ACTIVE ou CANCELLED |
+| startCycle | VARCHAR(7) | Competência inicial |
+| endCycle | VARCHAR(7) | Competência final (em caso de cancelamento) |
+| quotaSnapshot | JSON/TEXT | Cópia da cota no momento da adesão |
+| createdAt | TIMESTAMP | Data de criação |
+| updatedAt | TIMESTAMP | Última atualização |
+| cancelledAt | TIMESTAMP | Data exata do cancelamento |
+| cancellationReason | VARCHAR(500) | Motivo do cancelamento para auditoria |
+| cancelledBy | VARCHAR(50) | Usuário (ou sistema) que realizou o cancelamento |
 
 ---
 
@@ -292,6 +298,7 @@ Todos os eventos devem possuir:
   "occurredAt": "2026-01-01T00:00:00Z",
   "userId": "usr_123"
 }
+
 ```
 
 ---
@@ -302,8 +309,8 @@ O serviço pode consumir eventos necessários para manter a consistência do dom
 
 Exemplo:
 
-| Evento          | Ação                                     |
-| --------------- | ---------------------------------------- |
+| Evento | Ação |
+| --- | --- |
 | UserDeactivated | Cancelar participações ativas do usuário |
 
 ---
