@@ -30,17 +30,30 @@ QUEUE_NAME = os.getenv("RABBITMQ_QUEUE", "users.deactivated")
 RETRY_ATTEMPTS = int(os.getenv("RABBITMQ_RETRY_ATTEMPTS", "5"))
 
 
+def _handle_payload_sync(raw_payload: dict) -> None:
+    """Operação síncrona que interage com o banco (a ser executada com asyncio.to_thread)."""
+    with get_db_context() as db:
+        repo = ParticipationRepository(db)
+        handle_user_deactivated_event(raw_payload, repo)
+
+
 async def _process_message(message: IncomingMessage) -> None:
-    async with message.process(requeue=True):
+    # Use requeue=False para evitar loop infinito de mensagens com erro
+    async with message.process(requeue=False):
         try:
             raw_payload = json.loads(message.body.decode("utf-8"))
         except (ValueError, UnicodeDecodeError) as error:
             logger.error(f"Falha ao desserializar mensagem: {error}")
             return
 
-        with get_db_context() as db:
-            repo = ParticipationRepository(db)
-            handle_user_deactivated_event(raw_payload, repo)
+        try:
+            # Executa a operação de DB em uma thread separada para não bloquear o event loop
+            await asyncio.to_thread(_handle_payload_sync, raw_payload)
+        except Exception as err:
+            logger.exception(f"Erro ao processar payload no thread de DB: {err}")
+            # Levanta a exceção para que a biblioteca registre o erro;
+            # como usamos requeue=False a mensagem não ficará presa em loop.
+            raise
 
         logger.info("Mensagem processada e confirmada com sucesso.")
 
