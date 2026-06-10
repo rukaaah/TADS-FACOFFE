@@ -12,24 +12,20 @@ from typing import Generator
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
-# Recupera a URL de conexão do ambiente (Docker/Produção) ou adota um fallback seguro local (SQLite)
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///participation.db")
 
-# Configurações específicas para o motor do banco de dados
 connect_args = {}
 if DATABASE_URL.startswith("sqlite"):
-    # Necessário para permitir que múltiplas threads acessem o banco de dados SQLite local durante o desenvolvimento
     connect_args = {"check_same_thread": False}
 
-# Criação do Engine do SQLAlchemy. O pool de conexões e logs de eco podem ser configurados aqui.
+
 engine = create_engine(
     DATABASE_URL, 
     connect_args=connect_args,
     echo=False
 )
 
-# Fábrica de sessões vinculada ao Engine.
-# expire_on_commit=False impede que os atributos das entidades fiquem indisponíveis após um commit.
+
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
@@ -47,6 +43,10 @@ def get_db() -> Generator[Session, None, None]:
     db = SessionLocal()
     try:
         yield db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
