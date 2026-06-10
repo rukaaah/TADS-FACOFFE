@@ -8,11 +8,9 @@ Nenhuma regra de negócio ou lógica de banco de dados deve existir aqui.
 """
 
 from fastapi import APIRouter, Depends, Query, Path, status, HTTPException
-from typing import dict
 from sqlalchemy.orm import Session
 
 from src.api.schemas import (
-    ErrorResponse,
     CreateParticipationQuotaRequest,
     UpdateParticipationQuotaRequest,
     ParticipationQuota,
@@ -23,11 +21,10 @@ from src.api.schemas import (
     ParticipationPage,
     QuotaCondition,
     QuotaItems,
-    ParticipationStatus,
 )
 
 # 2. Importar as barreiras de segurança (RBAC)
-from src.api.security import require_role, get_current_user_payload
+from src.api.security import require_role, get_current_user_payload, require_role_or_self
 from src.infrastructure.database.repositories import ParticipationRepository
 from src.infrastructure.database.session import get_db
 
@@ -35,8 +32,7 @@ from src.infrastructure.database.session import get_db
 from src.application import services
 from src.domain import exceptions
 
-router = APIRouter(tags=["Participation"])
-
+router = APIRouter(prefix="/participation", tags=["Participation"])
 
 # =========================================================================
 # DEPENDÊNCIA AUTOMÁTICA DO REPOSITÓRIO
@@ -50,7 +46,7 @@ def get_repo(db: Session = Depends(get_db)) -> ParticipationRepository:
 # ROTAS DE COTAS (QUOTAS)
 # ==========================================
 @router.post(
-    "/participations/quotas", 
+    "/quotas", 
     response_model=ParticipationQuota, 
     status_code=status.HTTP_201_CREATED,
     summary="Cadastrar cota de participação"
@@ -68,7 +64,7 @@ def create_participation_quota(
     except exceptions.DomainError as e:
         raise HTTPException(status_code=e.http_status, detail=str(e))
 
-@router.get("/participations/quotas", response_model=ParticipationQuotaPage, summary="Listar cotas de participação com paginação")
+@router.get("/quotas", response_model=ParticipationQuotaPage, summary="Listar cotas de participação com paginação")
 def list_participation_quotas(
     active: bool | None = Query(None, description="Filtrar por status ativo/inativo"),
     condition: QuotaCondition | None = Query(None, description="Filtrar por tipo de condição"),
@@ -152,7 +148,7 @@ def get_participation_by_id(
 def cancel_participation(
     participationId: str = Path(...),
     payload: CancelParticipationRequest = ...,
-    user_payload: dict = Depends(get_current_user_payload),
+    user_payload: dict = Depends(require_role_or_self),
     repo: ParticipationRepository = Depends(get_repo)
 ):
     try:
