@@ -4,13 +4,19 @@ Descrição: Centraliza a lógica do Padrão de Retentativa (Retry Pattern).
 Contém decoradores de resiliência que protegem operações críticas de rede 
 (como salvar no banco de dados ou ler do RabbitMQ) contra falhas temporárias 
 (ex: picos de I/O, perda momentânea de conexão), usando backoff exponencial.
+Utiliza Tenacity para suporte nativo a funções síncronas e assíncronas.
 """
 
 import logging
-import time
 from typing import Callable, TypeVar, Any, Tuple, Type
-from functools import wraps
-from random import uniform
+
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    before_sleep_log,
+    retry_if_exception_type,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -48,114 +54,60 @@ class RetryConfig:
         self.jitter = jitter
         self.exceptions = exceptions
 
-    def calculate_delay(self, attempt: int) -> float:
+    def build_decorator(self) -> Callable:
         """
-        Calcula o delay para uma tentativa específica com backoff exponencial.
+        Constrói um decorador Tenacity com base nas configurações.
         
-        Args:
-            attempt: Número da tentativa (começando em 0)
-            
-        Returns:
-            Tempo de espera em segundos
+        Retorna:
+            Decorador @retry do Tenacity já configurado.
         """
-        # Backoff exponencial: initial_delay * (backoff_multiplier ^ attempt)
-        delay = self.initial_delay * (self.backoff_multiplier ** attempt)
-        
-        # Garante que não ultrapasse o delay máximo
-        delay = min(delay, self.max_delay)
-        
-        # Adiciona jitter (variação aleatória entre 0 e 100% do delay)
-        if self.jitter:
-            delay = delay * uniform(0.5, 1.0)
-        
-        return delay
+        return retry(
+            stop=stop_after_attempt(self.max_attempts),
+            wait=wait_exponential(
+                multiplier=self.initial_delay,
+                min=self.initial_delay,
+                max=self.max_delay,
+                exp_base=self.backoff_multiplier,
+            ),
+            retry=retry_if_exception_type(self.exceptions),
+            before_sleep=before_sleep_log(logger, logging.WARNING),
+            reraise=True,
+        )
 
 
-def retry(config: RetryConfig = None) -> Callable[[F], F]:
+def apply_retry(config: RetryConfig) -> Callable[[F], F]:
     """
     Decorador de resiliência com retry automático e backoff exponencial.
     
     Protege operações críticas de rede contra falhas temporárias, tentando
-    novamente com delays exponenciais crescentes.
+    novamente com delays exponenciais crescentes. Funciona com funções síncronas
+    e assíncronas automaticamente via Tenacity.
     
     Args:
         config: Instância de RetryConfig com as configurações desejadas.
-                Se None, usa configurações padrão.
     
     Returns:
         Decorador que envolve a função com lógica de retry.
     
     Exemplo:
-        # Retry com configuração padrão
-        @retry()
+        # Retry com configuração padrão (síncono)
+        @apply_retry(DATABASE_RETRY_CONFIG)
         def save_to_database(data):
             # Operação crítica
             pass
         
-        # Retry com configuração customizada
-        config = RetryConfig(
-            max_attempts=5,
-            initial_delay=0.5,
-            backoff_multiplier=2.0,
-            exceptions=(ConnectionError, TimeoutError)
-        )
-        
-        @retry(config)
-        def connect_to_rabbitmq():
+        # Retry com configuração customizada (assíncrono)
+        @apply_retry(MESSAGING_RETRY_CONFIG)
+        async def connect_to_rabbitmq():
             # Operação de conexão
-            pass
+            await some_async_operation()
     """
-    if config is None:
-        config = RetryConfig()
-    
-    def decorator(func: F) -> F:
-        @wraps(func)
-        def wrapper(*args: Any, **kwargs: Any) -> Any:
-            last_exception = None
-            
-            for attempt in range(config.max_attempts):
-                try:
-                    logger.debug(
-                        f"[RETRY] Tentativa {attempt + 1}/{config.max_attempts} "
-                        f"para {func.__name__}"
-                    )
-                    return func(*args, **kwargs)
-                
-                except config.exceptions as e:
-                    last_exception = e
-                    
-                    # Se foi a última tentativa, levanta a exceção
-                    if attempt == config.max_attempts - 1:
-                        logger.error(
-                            f"[RETRY] Falha permanente em {func.__name__} após "
-                            f"{config.max_attempts} tentativas: {str(e)}"
-                        )
-                        raise
-                    
-                    # Calcula o delay para a próxima tentativa
-                    delay = config.calculate_delay(attempt)
-                    logger.warning(
-                        f"[RETRY] {func.__name__} falhou (tentativa {attempt + 1}/"
-                        f"{config.max_attempts}): {str(e)}. "
-                        f"Retentando em {delay:.2f}s..."
-                    )
-                    
-                    # Aguarda antes de tentar novamente
-                    time.sleep(delay)
-            
-            # Esta linha nunca deveria ser alcançada, mas garante type safety
-            if last_exception:
-                raise last_exception
-        
-        return wrapper  # type: ignore
-    
-    return decorator
+    return config.build_decorator()
 
 
-
+# ====================================================================
 # CONFIGURAÇÕES PRÉ-DEFINIDAS PARA CASOS DE USO COMUNS
-
-# Para operações de banco de dados (salvamento, atualização, etc.)
+# ====================================================================
 DATABASE_RETRY_CONFIG = RetryConfig(
     max_attempts=3,
     initial_delay=0.5,
