@@ -24,7 +24,7 @@ from src.api.schemas import (
 )
 
 # 2. Importar as barreiras de segurança (RBAC)
-from src.api.security import require_role, get_current_user_payload, require_role_or_self
+from src.api.security import require_role, get_current_user_payload, require_manager_or_self
 from src.infrastructure.database.repositories import ParticipationRepository
 from src.infrastructure.database.session import get_db
 
@@ -148,10 +148,12 @@ def get_participation_by_id(
 def cancel_participation(
     participationId: str = Path(...),
     payload: CancelParticipationRequest = ...,
-    user_payload: dict = Depends(require_role_or_self),
+    user_payload: dict = Depends(get_current_user_payload), 
     repo: ParticipationRepository = Depends(get_repo)
 ):
     try:
+        adesao_alvo = services.get_participation(participation_id=participationId, repo=repo)
+        require_manager_or_self(payload=user_payload, target_user_id=adesao_alvo.user_id)     
         return services.cancel_participation(participation_id=participationId, payload=payload, repo=repo)
     except exceptions.DomainError as e:
         raise HTTPException(status_code=e.http_status, detail=str(e))
