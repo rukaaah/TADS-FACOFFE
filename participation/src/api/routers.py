@@ -1,13 +1,12 @@
 """
 Módulo: routers.py
 Descrição: Mapeia e expõe os endpoints HTTP (rotas) do subdomínio Participation.
-Atua estritamente como a porta de entrada da API: recebe as requisições HTTP, 
-aciona a orquestração na camada de aplicação (services), mapeia os objetos de 
-domínio para schemas Pydantic e devolve as respostas com os códigos corretos.
 """
 
 from fastapi import APIRouter, Depends, Query, Path, status, HTTPException
 from sqlalchemy.orm import Session
+from typing import Optional
+from datetime import timezone
 
 from src.api.schemas import (
     CreateParticipationQuotaRequest,
@@ -20,6 +19,7 @@ from src.api.schemas import (
     ParticipationPage,
     QuotaCondition,
     QuotaItems,
+    ParticipationStatus,
 )
 from src.api.security import require_role, get_current_user_payload, require_manager_or_self
 from src.infrastructure.database.repositories import ParticipationRepository
@@ -48,7 +48,6 @@ def ensure_tz(dt):
     return dt
 
 def map_quota(cota) -> ParticipationQuota:
-    """Converte a entidade de domínio (snake_case) para o schema da API (camelCase)."""
     return ParticipationQuota(
         id=cota.id,
         name=cota.name,
@@ -63,7 +62,6 @@ def map_quota(cota) -> ParticipationQuota:
     )
 
 def map_participation(part) -> Participation:
-    """Converte a entidade de domínio (snake_case) para o schema da API (camelCase)."""
     return Participation(
         id=part.id,
         userId=part.user_id,
@@ -76,14 +74,6 @@ def map_participation(part) -> Participation:
         updatedAt=ensure_tz(part.updated_at),
         cancelledAt=ensure_tz(part.cancelled_at)
     )
-
-# =========================================================================
-# DEPENDÊNCIA AUTOMÁTICA DO REPOSITÓRIO
-# =========================================================================
-def get_repo(db: Session = Depends(get_db)) -> ParticipationRepository:
-    # participations/Abre a sessão do banco e instancia o repositório pronto para as rotas.
-    return ParticipationRepository(db)
-
 
 # ==========================================
 # ROTAS DE COTAS (QUOTAS)
@@ -184,10 +174,10 @@ def join_participation_quota(
 
 @router.get("/participations", response_model=ParticipationPage, summary="Listar participações")
 def list_participations(
-    userId: str | None = Query(None),
-    quotaId: str | None = Query(None),
-    status: str | None = Query(None),
-    cycle: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+    userId: Optional[str] = Query(None),
+    quotaId: Optional[str] = Query(None),
+    status: Optional[ParticipationStatus] = Query(None),
+    cycle: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
     page: int = Query(0, ge=0),
     size: int = Query(20, ge=1, le=100),
     repo: ParticipationRepository = Depends(get_repo)
@@ -223,8 +213,6 @@ def cancel_participation(
 ):
     try:
         adesao_alvo = services.get_participation(participation_id=participationId, repo=repo)
-        
-        # Validando se quem está a tentar cancelar é o gestor ou o próprio dono da adesão
         require_manager_or_self(payload=user_payload, target_user_id=adesao_alvo.user_id)
         
         adesao_cancelada = services.cancel_participation(participation_id=participationId, payload=payload, repo=repo)

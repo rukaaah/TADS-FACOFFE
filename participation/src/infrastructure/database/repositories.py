@@ -27,14 +27,14 @@ class ParticipationRepository:
     # ==========================================
     # DOMÍNIO DE COTAS (QUOTAS)
     # ==========================================
-
     def save_quota(self, quota: ParticipationQuota) -> ParticipationQuota:
         """Salva uma nova cota ou atualiza uma existente (Upsert implícito pela Session)."""
         try:
             self.session.add(quota)
             self.session.flush() # Sincroniza com o banco para gerar campos padrão (ex: created_at)
             
-            self.session.refresh(quota) 
+            # Puxa o "created_at" que o banco acabou de gerar para não quebrar a API
+            self.session.refresh(quota)
             
             return quota
         except SQLAlchemyError as e:
@@ -91,13 +91,13 @@ class ParticipationRepository:
     # ==========================================
     # DOMÍNIO DE ADESÕES (PARTICIPATIONS)
     # ==========================================
-
     def save_participation(self, participation: ParticipationMembership) -> ParticipationMembership:
         """Salva uma nova adesão ou atualiza uma existente no banco."""
         try:
             self.session.add(participation)
-            self.session.flush() 
+            self.session.flush()
             
+            # Puxa o "created_at" e outros dados que o banco gerou no momento do flush
             self.session.refresh(participation)
             
             return participation
@@ -168,6 +168,9 @@ class ParticipationRepository:
             if status:
                 filters.append(ParticipationMembership.status == status)
             if cycle:
+                # Retorna a participação se ela esteva ativa no ciclo pesquisado:
+                # O start_cycle tem que ser menor ou igual ao ciclo pesquisado E
+                # O end_cycle não existir (None) ou for maior ou igual ao ciclo pesquisado.
                 filters.append(
                     and_(
                         ParticipationMembership.start_cycle <= cycle,
