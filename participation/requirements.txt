@@ -14,6 +14,7 @@ python-multipart==0.0.9
 
 # --- Mensageria e Eventos (Asynchronous Messaging) ---
 aio-pika==9.4.1
+pika==1.3.2
 
 # --- Resiliência (Retry Pattern) ---
 tenacity==8.3.0
