@@ -129,8 +129,8 @@ class Participation(BaseModel):
     userId: str = Field(..., examples=['usr_123'])
     quotaId: str = Field(..., examples=['quota_001'])
     status: ParticipationStatus
-    startCycle: constr(pattern=r'^\\d{4}-\\d{2}$') = Field(..., examples=['2026-05'])
-    endCycle: constr(pattern=r'^\\d{4}-\\d{2}$') | None = None
+    startCycle: constr(pattern=r'^\d{4}-\d{2}$') = Field(..., examples=['2026-05'])
+    endCycle: constr(pattern=r'^\d{4}-\d{2}$') | None = None
     quotaSnapshot: QuotaSnapshot
     createdAt: AwareDatetime = Field(..., examples=['2026-05-02T10:00:00Z'])
     cancelledAt: AwareDatetime | None = None

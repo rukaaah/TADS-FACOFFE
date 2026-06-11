@@ -35,6 +35,7 @@ O microsserviço de **Participation** foi desenvolvido utilizando as seguintes t
 * **Mensageria Assíncrona:** aio-pika (RabbitMQ)
 * **Segurança:** python-jose (Validação de JWT/Keycloak)
 * **Resiliência:** Tenacity (Retry Pattern)
+* **Testes:** Pytest e HTTPX
 
 ---
 
@@ -50,6 +51,7 @@ facoffee/
 │
 └── participation/             # 📍 DIRETÓRIO DA NOSSA EQUIPE
     ├── requirements.txt       # Dependências do Python
+    ├── tests/                 # Suíte de testes unitários e de integração
     └── src/
         ├── api/               # Roteamento (Routers), Schemas (Pydantic) e Segurança (RBAC)
         ├── application/       # Lógica de Negócio (Services)
@@ -121,8 +123,48 @@ Com o servidor rodando, você pode acessar:
 
 ---
 
-## 📝 Notas para Desenvolvedores da Equipe
+## 🧪 Rodando os Testes
 
-* **Atualização de Contratos:** Os arquivos em `src/api/schemas.py` são gerados automaticamente a partir do `api-docs.yaml`. Se houver mudanças no contrato do professor, não edite o schema na mão. Use a ferramenta `datamodel-code-generator`.
-* **Regras de Negócio:** Nenhuma lógica de negócio deve ser colocada dentro de `src/api/routers.py`. Use a camada de roteamento apenas para chamar funções da camada `src/application/services.py`.
-* **Segurança:** Todas as rotas (exceto as de leitura pública, se houver) devem ser protegidas utilizando a dependência `Depends(require_role([...]))` presente em `src/api/security.py`.
+O projeto possui uma suíte completa de testes automatizados (unitários e de integração) construída com **Pytest**, garantindo que as regras de negócio, rotas e consultas ao banco (via SQLite em memória) funcionem conforme o Documento de Arquitetura.
+
+Para rodar a suíte inteira, certifique-se de que o seu ambiente virtual (`venv`) está ativado na pasta `participation` e execute:
+
+```bash
+python3 -m pytest
+
+```
+
+*(Para ver detalhes adicionais de execução, utilize `python3 -m pytest -v`).*
+
+### 5. Exemplos de Chamadas (API)
+
+Aqui estão exemplos práticos de como interagir com o microsserviço utilizando o `curl`. Lembre-se de substituir o `<TOKEN_JWT>` por um token válido gerado pelo Keycloak.
+
+**1. Criar uma nova cota (Requer Role: MANAGER):**
+```bash
+curl -X 'POST' \
+  'http://localhost:3002/participation/quotas' \
+  -H 'accept: application/json' \
+  -H 'Authorization: Bearer <TOKEN_JWT>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "name": "Cota de Café Expresso",
+  "description": "Cota para compra de cápsulas mensais",
+  "condition": "DAILY",
+  "items": "COFFEE",
+  "amount": 50.00,
+  "active": true
+}'
+```
+**2. Aderir a uma cota (Requer Role: PARTICIPANT):**
+```bash
+curl -X 'POST' \
+  'http://localhost:3002/participation/participations' \
+  -H 'accept: application/json' \
+  -H 'Authorization: Bearer <TOKEN_JWT>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "userId": "usr_999",
+  "quotaId": "quota_12345",
+  "startCycle": "2026-06"
+}'
