@@ -29,6 +29,7 @@ from src.domain.exceptions import (
     ConflictError
 )
 from src.infrastructure.database.repositories import ParticipationRepository
+from src.infrastructure.messaging.publisher import publish_event
 
 # ==========================================
 # UTILITÁRIOS
@@ -71,8 +72,23 @@ def create_quota(
         status="ACTIVE" if payload.active else "INACTIVE",
         created_by=created_by
     )
-    return repo.save_quota(nova_cota)
-
+    
+    # 1. Consolida a cota no banco de dados primeiro
+    cota_salva = repo.save_quota(nova_cota)
+    
+    # 2. Dispara o evento (Megafone) notificando a criação da cota
+    publish_event(
+        routing_key="quota.created",
+        event_type="QuotaCreated",
+        data={
+            "quotaId": cota_salva.id,
+            "name": cota_salva.name,
+            "amount": float(cota_salva.amount),
+            "condition": cota_salva.condition
+        }
+    )
+    
+    return cota_salva
 
 def list_quotas(
     active: bool | None,
@@ -187,7 +203,23 @@ def join_quota(
         quota_snapshot=snapshot
     )
     
-    return repo.save_participation(nova_adesao)
+    # 1. Consolida a adesão no banco de dados primeiro
+    adesao_salva = repo.save_participation(nova_adesao)
+    
+    # 2. Dispara o evento (Megafone) notificando a nova adesão
+    publish_event(
+        routing_key="membership.created",
+        event_type="MembershipCreated",
+        data={
+            "participationId": adesao_salva.id,
+            "userId": adesao_salva.user_id,
+            "quotaId": adesao_salva.quota_id,
+            "amount": snapshot["amount"],
+            "startCycle": adesao_salva.start_cycle
+        }
+    )
+    
+    return adesao_salva
 
 
 def list_participations(
