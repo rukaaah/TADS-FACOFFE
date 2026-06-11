@@ -88,9 +88,7 @@ Exemplos:
 
 ## 3.1 Decomposition by Subdomain
 
-O domínio do FACOFFEE foi dividido em contextos independentes.
-
-O microsserviço Participation implementa exclusivamente o contexto responsável por cotas e adesões.
+O domínio do FACOFFEE foi dividido em contextos independentes. O microsserviço Participation implementa exclusivamente o contexto responsável por cotas e adesões.
 
 ### Benefícios
 
@@ -98,6 +96,11 @@ O microsserviço Participation implementa exclusivamente o contexto responsável
 * Evolução independente;
 * Separação clara de responsabilidades;
 * Facilidade de manutenção.
+
+### Onde e como foi aplicado
+
+* Toda a regra de negócio vive restrita à pasta `src/domain` e `src/application`.
+* O nosso modelo (`ParticipationQuota` e `ParticipationMembership`) não carrega informações financeiras (como status de pagamento de boletos) nem dados de perfil do usuário (como nome ou e-mail), mantendo o escopo estritamente focado no controle de participação.
 
 ---
 
@@ -111,14 +114,10 @@ O serviço possui banco de dados próprio e isolado.
 * Não realizar consultas diretas em bancos externos;
 * Armazenar apenas identificadores externos quando necessário.
 
-Exemplo:
+### 📍 Onde e como foi aplicado
 
-```text
-userId
-
-```
-
-é armazenado apenas como referência de domínio.
+* O serviço possui sua própria conexão gerenciada na camada `src/infrastructure/database`.
+* **Ausência de Chaves Estrangeiras (FK) externas:** Na nossa tabela de adesões, a coluna `user_id` armazena apenas a referência em *string* (ex: `usr_123`) gerada pelo Keycloak, e não uma Foreign Key real. Se precisarmos dos dados detalhados do usuário, confiamos no token JWT ou consultamos o serviço de usuários, preservando a autonomia do banco de dados.
 
 ---
 
@@ -133,7 +132,11 @@ O serviço utiliza RabbitMQ para integração desacoplada com os demais módulos
 * Redução de dependências síncronas;
 * Escalabilidade.
 
----
+### 📍 Onde e como foi aplicado
+
+* **Publicação (Publisher):** Acoplado na nossa camada de serviços (`src/application/services.py`). Quando um usuário adere a uma cota com sucesso, disparamos o evento `MembershipCreated` para o RabbitMQ, permitindo que o serviço Financeiro saiba que deve gerar uma cobrança, sem que o nosso serviço precise esperar a resposta dele.
+* **Consumo (Subscriber):** Nosso serviço escuta passivamente a fila de eventos de usuário. Se o evento `users.deactivated` chegar, uma função automática de *hook* cancela todas as cotas ativas desse usuário imediatamente, mantendo a consistência do sistema (Saga Pattern).
+
 
 ## 3.4 Retry Pattern
 
