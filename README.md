@@ -1,170 +1,238 @@
-# FACOFFEE - Gestão Coletiva da Copa (Microsserviço: Participation)
+<div align="center">
 
-O **FACOFFEE** é um sistema distribuído projetado para automatizar o gerenciamento coletivo da copa dos servidores do departamento.
+# FACOFFEE · Participation Service
 
-A copa possui uma máquina de café expresso mantida pelos próprios interessados, e os gastos com insumos (café, chás, bolachas, materiais de consumo e manutenção) são rateados entre os participantes. O ecossistema permite que gestores cadastrem cotas, participantes realizem adesões e o sistema controle automaticamente a geração de pendências financeiras e a validação de comprovantes de pagamento.
+**Microsserviço de cotas e adesões da gestão coletiva da copa do departamento**
 
----
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776ab)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.111-009688)](https://fastapi.tiangolo.com/)
+[![RabbitMQ](https://img.shields.io/badge/eventos-RabbitMQ-ff6600)](https://www.rabbitmq.com/)
+[![Keycloak](https://img.shields.io/badge/auth-Keycloak-4d4d4d)](https://www.keycloak.org/)
+[![OpenAPI](https://img.shields.io/badge/contrato-OpenAPI%20%2B%20AsyncAPI-6ba539)](api-docs.yaml)
 
-## 🏗️ Arquitetura do Sistema
+[Arquitetura](#arquitetura) · [API](#api) · [Eventos](#eventos) · [Regras de negócio](#regras-de-negócio) · [Começando](#começando) · [Testes](#testes)
 
-Para garantir escalabilidade, resiliência e independência no desenvolvimento, o FACOFFEE foi desenhado sob uma arquitetura de **Microsserviços**.
+</div>
 
-### Decisões Arquiteturais da Equipe
+A copa dos servidores do departamento tem uma máquina de café expresso mantida pelos próprios interessados, e os gastos com insumos são rateados entre os participantes. O **FACOFFEE** automatiza esse rateio como um sistema distribuído de três microsserviços; este repositório implementa o **Participation**, responsável pelo cadastro de cotas e pelas adesões dos participantes.
 
-Nossa equipe implementou o projeto baseando-se em quatro padrões arquiteturais fundamentais:
+Gestores criam cotas (valor, periodicidade e itens cobertos), participantes aderem a uma delas, e o serviço anuncia cada mudança por eventos para que o Finance gere as pendências financeiras.
 
-* **Decomposition by Subdomain (DDD):** O domínio complexo da aplicação foi dividido em três subdomínios (Bounded Contexts) claros e independentes:
-    * **Users:** Governança de contas, autenticação e papéis de acesso.
-    * **Participation (Nosso Escopo):** Regras de negócio sobre a criação e manutenção de cotas, além do gerenciamento de adesões de usuários.
-    * **Finance:** Faturamento, pendências, despesas e validação de comprovantes.
-* **Database per Service:** Para evitar acoplamento rígido (tight coupling), cada microsserviço possui o seu próprio banco de dados isolado. O nosso serviço gerencia exclusivamente as entidades de cotas e participações, não compartilhando tabelas ou realizando consultas diretas (SQL JOINs) com os bancos de usuários ou do financeiro.
-* **Asynchronous Messaging (Event-driven):** A comunicação entre os módulos para atualizações de estado é feita de forma assíncrona. O serviço *Participation* integra-se a essa arquitetura atuando como consumidor: ele escuta o evento `UserDeactivated` no RabbitMQ para cancelar automaticamente as adesões ativas de um usuário desativado, eliminando dependências síncronas entre os serviços.
-* **Retry Pattern:** Como o sistema é distribuído e depende de rede, operações de I/O críticas—como o consumo de mensagens no RabbitMQ e as atualizações de status no banco de dados isolado—estão protegidas por lógicas de retentativa automática. Isso garante que instabilidades temporárias não quebrem o fluxo do usuário ou causem perda de eventos no ecossistema.
+> [!NOTE]
+> Trabalho prático acadêmico. A raiz do repositório traz a infraestrutura compartilhada e os contratos da plataforma; o código desta equipe vive exclusivamente em [`participation/`](participation).
 
----
+## Arquitetura
 
-## 🛠️ Stack Tecnológica
+O domínio foi decomposto em três *bounded contexts* independentes, cada um com o seu próprio banco:
 
-O microsserviço de **Participation** foi desenvolvido utilizando as seguintes tecnologias:
+| Subdomínio | Responsabilidade | Porta |
+| :--- | :--- | :--- |
+| Users | Contas, autenticação e papéis de acesso | 3001 |
+| **Participation** | **Cotas e adesões — este repositório** | **3002** |
+| Finance | Faturamento, pendências, despesas e comprovantes | 3003 |
 
-* **Linguagem:** Python 3.10+
-* **Framework Web:** FastAPI (com Uvicorn)
-* **Validação de Contratos:** Pydantic (Modelos gerados automaticamente a partir do OpenAPI)
-* **ORM (Banco de Dados):** SQLAlchemy + Alembic (Migrações)
-* **Mensageria Assíncrona:** aio-pika (RabbitMQ)
-* **Segurança:** python-jose (Validação de JWT/Keycloak)
-* **Resiliência:** Tenacity (Retry Pattern)
-* **Testes:** Pytest e HTTPX
+Quatro padrões sustentam a implementação:
 
----
+- **Decomposition by Subdomain** — as fronteiras acima saem do domínio, não da estrutura técnica.
+- **Database per Service** — o serviço só conhece `participation_quotas` e `participation_memberships`. Nenhum `JOIN` atravessa a fronteira: ao aderir, os dados relevantes da cota são copiados para dentro da adesão (veja [RN04](#regras-de-negócio)).
+- **Asynchronous Messaging** — publica e consome eventos no RabbitMQ pelo exchange de tópicos `facoffee.events`, sem chamadas síncronas a outros serviços.
+- **Retry Pattern** — operações de I/O usam retentativa com *backoff* exponencial e *jitter* via `tenacity`. As configurações prontas estão em [`retry.py`](participation/src/infrastructure/messaging/retry.py): 3 tentativas para banco, 5 para mensageria, 4 para rede.
 
-## 📂 Organização do Repositório
+O código segue separação em camadas: `api/` (HTTP e RBAC) → `application/` (casos de uso e regras) → `domain/` (entidades e erros), com `infrastructure/` atendendo persistência e mensageria.
 
-A raiz deste repositório contém a infraestrutura base da plataforma e os contratos estabelecidos. O código da nossa equipe vive exclusivamente na pasta `/participation`.
+### Resiliência da publicação
 
-```text
-facoffee/
-├── api-docs.yaml              # Contrato REST (OpenAPI)
-├── async-docs.yaml            # Contrato de Mensageria (AsyncAPI)
-├── docker-compose.yml         # Infra base (API Gateway, Keycloak, RabbitMQ)
-│
-└── participation/             # 📍 DIRETÓRIO DA NOSSA EQUIPE
-    ├── requirements.txt       # Dependências do Python
-    ├── tests/                 # Suíte de testes unitários e de integração
-    └── src/
-        ├── api/               # Roteamento (Routers), Schemas (Pydantic) e Segurança (RBAC)
-        ├── application/       # Lógica de Negócio (Services)
-        ├── domain/            # Entidades do Banco (Models) e Exceções Customizadas
-        └── infrastructure/    # Conexão com DB e Consumidores do RabbitMQ
+Se o RabbitMQ estiver indisponível no momento de publicar, o evento não é perdido nem derruba a requisição: ele é gravado em `outbox_events_fallback.jsonl` (Outbox simplificado) para reenvio posterior.
 
+## API
+
+Todas as rotas ficam sob o prefixo `/api/participation`. Via API Gateway, troque `localhost:3002` por `localhost:8000`.
+
+| Método | Rota | Acesso |
+| :--- | :--- | :--- |
+| `POST` | `/api/participation/quotas` | `MANAGER` |
+| `GET` | `/api/participation/quotas` | aberto |
+| `GET` | `/api/participation/quotas/{quotaId}` | aberto |
+| `PATCH` | `/api/participation/quotas/{quotaId}` | `MANAGER` |
+| `DELETE` | `/api/participation/quotas/{quotaId}` | `MANAGER` |
+| `POST` | `/api/participation/participations` | `PARTICIPANT` |
+| `GET` | `/api/participation/participations` | aberto |
+| `GET` | `/api/participation/participations/{participationId}` | aberto |
+| `PATCH` | `/api/participation/participations/{participationId}` | `MANAGER` ou o próprio dono |
+| `GET` | `/health` | aberto |
+
+O `DELETE` de cota é remoção lógica: o status vira `INACTIVE` e o registro é preservado. Listagens aceitam paginação (`page`, `size` até 100) e filtros — `active`, `condition` e `items` para cotas; `userId`, `quotaId`, `status` e `cycle` para adesões.
+
+As roles vêm da claim `roles` do JWT emitido pelo Keycloak, enviado em `Authorization: Bearer <token>`.
+
+> [!WARNING]
+> A validação da assinatura do JWT ainda não está implementada: o serviço lê as claims com `get_unverified_claims`. Enquanto isso não mudar, a porta `3002` não deve ser exposta fora da rede interna, já que um token forjado com `roles: ["MANAGER"]` passaria pelo RBAC. O item 5.1 do [SAD](participation/docs/sad.md) exige a validação.
+
+### Exemplos
+
+Criar uma cota:
+
+```bash
+curl -X POST 'http://localhost:3002/api/participation/quotas' \
+  -H 'Authorization: Bearer <TOKEN_JWT>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "Cota de Café Expresso",
+    "description": "Rateio mensal das cápsulas",
+    "condition": "DAILY",
+    "items": "COFFEE",
+    "amount": 50.00,
+    "active": true
+  }'
 ```
 
----
+Aderir a uma cota:
 
-## 🚀 Guia de Instalação e Execução Local
+```bash
+curl -X POST 'http://localhost:3002/api/participation/participations' \
+  -H 'Authorization: Bearer <TOKEN_JWT>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "userId": "usr_999",
+    "quotaId": "quota_12345",
+    "startCycle": "2026-06"
+  }'
+```
 
-Siga os passos abaixo para configurar o ambiente de desenvolvimento na sua máquina.
+## Eventos
 
-### 1. Subindo a Infraestrutura Base (Raiz do Projeto)
+Exchange `facoffee.events`, tipo *topic*, durável.
 
-Antes de rodar o nosso código Python, precisamos garantir que o Banco de Dados, o RabbitMQ, o Keycloak e o Nginx (API Gateway) estejam rodando.
+| Direção | Evento | Routing key / fila | Efeito |
+| :--- | :--- | :--- | :--- |
+| Publica | `QuotaCreated` | `quota.created` | Anuncia a nova cota ao ecossistema |
+| Publica | `MembershipCreated` | `membership.created` | Permite ao Finance abrir a pendência do participante |
+| Consome | `UserDeactivated` | fila `users.deactivated` | Cancela as adesões ativas do usuário desativado |
 
-Na raiz do repositório (`facoffee/`), execute:
+O consumidor roda como processo separado da API, com retentativa de conexão (`tenacity`) e `requeue=False` para que uma mensagem com erro não entre em laço infinito.
+
+## Regras de negócio
+
+| | Regra | Comportamento |
+| :--- | :--- | :--- |
+| RN01 | Valor da cota | `amount` negativo é rejeitado na criação e na atualização |
+| RN02 | Adesão única ativa | Um usuário não pode ter duas adesões ativas ao mesmo tempo — a segunda retorna `409` |
+| RN03 | Desativação de cota | Cota com adesões ativas não pode ser desativada |
+| RN04 | Snapshot da cota | A adesão guarda uma cópia de nome, condição, itens e valor da cota no momento em que foi feita, de modo que mudanças posteriores não alterem o histórico |
+
+Erros de domínio viram respostas com `code` e `message` — `not_found` (404), `conflict` (409), `validation_error` (400) e os códigos específicos `quota_has_active_participations` e `user_already_has_active_participation`.
+
+## Começando
+
+**Requisitos:** Python 3.10+, Docker e Git.
+
+### 1. Infraestrutura compartilhada
+
+API Gateway (Nginx), Keycloak, RabbitMQ e Mailpit sobem pelo Compose na raiz:
 
 ```bash
 docker compose up -d
-
 ```
 
-*Aguarde alguns segundos até que todos os containers estejam saudáveis.*
+> [!IMPORTANT]
+> O `docker-compose.yml` monta arquivos de configuração de `nginx/`, `rabbitmq/` e `keycloak/` que **não estão versionados neste repositório** — peça-os a quem mantém a infraestrutura da plataforma, senão o `docker compose up` falha ao montar os volumes. O serviço Python roda sem eles; só o gateway e a autenticação ficam indisponíveis.
 
-### 2. Configurando o Ambiente Virtual Python (Pasta Participation)
+Depois de subir: RabbitMQ em `localhost:15672`, Keycloak em `localhost:8080` (`facoffee`/`facoffee`) e Mailpit em `localhost:8025`.
 
-Nosso microsserviço roda de forma isolada. Nunca instale as dependências globalmente.
+### 2. Ambiente do serviço
 
 ```bash
-# Entre no diretório da equipe
 cd participation
-
-# Crie o ambiente virtual (venv)
 python3 -m venv venv
-
-# Ative o ambiente virtual
-# No Linux/macOS:
-source venv/bin/activate
-# No Windows (PowerShell):
-.\venv\Scripts\Activate.ps1
-
-# Instale as dependências do projeto
-pip install -r requirements.txt
-
 ```
 
-### 3. Rodando a Aplicação
+| Sistema | Comando de ativação |
+| :--- | :--- |
+| Linux / macOS | `source venv/bin/activate` |
+| Windows | `.\venv\Scripts\Activate.ps1` |
 
-Com o ambiente virtual ativado (`(venv)` visível no terminal), inicie o servidor FastAPI.
+```bash
+pip install -r requirements.txt
+```
 
-**Atenção:** Nosso serviço deve rodar obrigatoriamente na porta `3002` para que o API Gateway (Nginx) consiga redirecionar o tráfego corretamente.
+### 3. Execução
 
-Dentro da pasta `participation/`, execute:
+A porta `3002` é obrigatória: é o que o API Gateway espera como *upstream*.
 
 ```bash
 uvicorn src.main:app --host 0.0.0.0 --port 3002 --reload
-
 ```
 
-### 4. Testando o Acesso
-
-Com o servidor rodando, você pode acessar:
-
-* **API Gateway (Porta de Entrada):** `http://localhost:8000/api/participation/quotas`
-* **Swagger Automático (Documentação FastAPI):** `http://localhost:3002/docs`
-
----
-
-## 🧪 Rodando os Testes
-
-O projeto possui uma suíte completa de testes automatizados (unitários e de integração) construída com **Pytest**, garantindo que as regras de negócio, rotas e consultas ao banco (via SQLite em memória) funcionem conforme o Documento de Arquitetura.
-
-Para rodar a suíte inteira, certifique-se de que o seu ambiente virtual (`venv`) está ativado na pasta `participation` e execute:
+As tabelas são criadas automaticamente na subida. Para escutar os eventos, rode o consumidor em outro terminal:
 
 ```bash
+python -m src.infrastructure.messaging.consumer
+```
+
+> [!WARNING]
+> O consumidor não sobe no estado atual da `main`: [`listener.py`](participation/src/infrastructure/messaging/listener.py) importa `process_user_deactivation` de `application/services.py`, função que existe apenas na branch `refactor/dry-user-deactivation` e nunca chegou à `main`. O mesmo import derruba `tests/unit/test_listener.py`.
+
+Com o serviço no ar: Swagger em `http://localhost:3002/docs`, ReDoc em `/redoc` e *healthcheck* em `/health`.
+
+### Configuração
+
+Tudo tem valor padrão para desenvolvimento local; nada é obrigatório.
+
+| Variável | Padrão | Descrição |
+| :--- | :--- | :--- |
+| `DATABASE_URL` | `sqlite:///participation.db` | Banco exclusivo do serviço |
+| `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672/` | Broker de eventos |
+| `RABBITMQ_QUEUE` | `users.deactivated` | Fila consumida pelo worker |
+| `RABBITMQ_RETRY_ATTEMPTS` | `5` | Tentativas de conexão do consumidor |
+
+## Estrutura
+
+```
+api-docs.yaml                 # Contrato REST de toda a plataforma (OpenAPI)
+async-docs.yaml               # Contrato de eventos (AsyncAPI)
+docker-compose.yml            # Gateway, Keycloak, RabbitMQ e Mailpit
+participation/
+├── docs/sad.md               # Documento de Arquitetura de Software
+├── requirements.txt
+├── pytest.ini
+├── src/
+│   ├── main.py               # Entrypoint, lifespan e handler global de erros
+│   ├── api/                  # Routers, schemas Pydantic e RBAC
+│   ├── application/          # Casos de uso e regras de negócio
+│   ├── domain/               # Entidades SQLAlchemy e exceções
+│   └── infrastructure/
+│       ├── database/         # Engine, sessões e repositórios
+│       └── messaging/        # Publisher, consumer, listener e retry
+└── tests/
+    ├── unit/                 # Modelos, serviços, segurança e listener
+    └── integration/          # Rotas e repositórios
+```
+
+## Testes
+
+```bash
+cd participation
 python3 -m pytest
-
 ```
 
-*(Para ver detalhes adicionais de execução, utilize `python3 -m pytest -v`).*
+A suíte usa `pytest` com `httpx`/`TestClient` e SQLite, cobrindo regras de negócio, RBAC, repositórios e o listener de mensageria. Nenhum teste precisa de RabbitMQ no ar.
 
-### 5. Exemplos de Chamadas (API)
+> [!NOTE]
+> Hoje a suíte não passa inteira. Além do `test_listener.py` citado acima, dois testes de `tests/integration/test_routers.py` retornam `500`: o `TestClient` é instanciado fora de um gerenciador de contexto, então o `lifespan` não roda e as tabelas não são criadas. Os outros 17 testes passam. Use `python3 -m pytest -v` para o detalhamento.
 
-Aqui estão exemplos práticos de como interagir com o microsserviço utilizando o `curl`. Lembre-se de substituir o `<TOKEN_JWT>` por um token válido gerado pelo Keycloak.
+## Documentação
 
-**1. Criar uma nova cota (Requer Role: MANAGER):**
-```bash
-curl -X 'POST' \
-  'http://localhost:3002/participation/quotas' \
-  -H 'accept: application/json' \
-  -H 'Authorization: Bearer <TOKEN_JWT>' \
-  -H 'Content-Type: application/json' \
-  -d '{
-  "name": "Cota de Café Expresso",
-  "description": "Cota para compra de cápsulas mensais",
-  "condition": "DAILY",
-  "items": "COFFEE",
-  "amount": 50.00,
-  "active": true
-}'
-```
-**2. Aderir a uma cota (Requer Role: PARTICIPANT):**
-```bash
-curl -X 'POST' \
-  'http://localhost:3002/participation/participations' \
-  -H 'accept: application/json' \
-  -H 'Authorization: Bearer <TOKEN_JWT>' \
-  -H 'Content-Type: application/json' \
-  -d '{
-  "userId": "usr_999",
-  "quotaId": "quota_12345",
-  "startCycle": "2026-06"
-}'
+| Arquivo | Conteúdo |
+| :--- | :--- |
+| [`participation/docs/sad.md`](participation/docs/sad.md) | Arquitetura, modelo de dados, decisões, regras de negócio e eventos |
+| [`api-docs.yaml`](api-docs.yaml) | Contrato REST dos três subdomínios, com as regras de `x-authorization` |
+| [`async-docs.yaml`](async-docs.yaml) | Canais e envelopes dos eventos de domínio |
+
+## Equipe
+
+| Nome | GitHub |
+| :--- | :--- |
+| Pedro Lucas Cremonini | [@rukaaah](https://github.com/rukaaah) |
+| Angelo Antônio de Souza | [@angelo-acds](https://github.com/angelo-acds) |
+| Gabriel Mattos | [@GabrielMattosA](https://github.com/GabrielMattosA) |
+| Cleiton Pinheiro | [@Ton-07](https://github.com/Ton-07) |
