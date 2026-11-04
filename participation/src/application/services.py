@@ -254,9 +254,17 @@ def get_participation(participation_id: str, repo: ParticipationRepository) -> P
 def cancel_participation(
     participation_id: str, 
     payload: CancelParticipationRequest | None,
-    repo: ParticipationRepository
+    repo: ParticipationRepository,
+    *,
+    cancelled_by: str | None = None,
+    reason: str | None = None
 ) -> ParticipationMembership:
-    """Realiza o cancelamento de uma participação ativa."""
+    """Realiza o cancelamento de uma participação ativa.
+
+    Os argumentos `cancelled_by` e `reason` alimentam as colunas de auditoria
+    (Seção 4.3 do SAD) e são usados pelo cancelamento automático disparado por
+    evento, onde não existe um `payload` HTTP.
+    """
     adesao = get_participation(participation_id, repo)
     
     if adesao.status == "CANCELLED":
@@ -268,4 +276,37 @@ def cancel_participation(
     if payload and payload.effectiveCycle:
         adesao.end_cycle = payload.effectiveCycle
 
+    if cancelled_by:
+        adesao.cancelled_by = cancelled_by
+    if reason:
+        adesao.cancellation_reason = reason
+
     return repo.save_participation(adesao)
+
+
+# ==========================================
+# REAÇÃO A EVENTOS DE OUTROS SUBDOMÍNIOS
+# ==========================================
+def process_user_deactivation(
+    user_id: str,
+    reason: str,
+    repo: ParticipationRepository
+) -> None:
+    """Cancela todas as participações ativas de um usuário desativado.
+
+    Acionada pelo listener da fila `users.deactivated`. Mantém a consistência do
+    domínio sem chamada síncrona ao serviço de Users: reaproveita a regra central
+    de cancelamento, uma adesão por vez, e registra que a origem foi um evento.
+    """
+    participacoes_ativas = repo.get_all_active_participations_by_user(user_id)
+
+    for participacao in participacoes_ativas:
+        # O evento não informa ciclo final, então `payload` vai como None e o
+        # `end_cycle` permanece inalterado.
+        cancel_participation(
+            participation_id=participacao.id,
+            payload=None,
+            repo=repo,
+            cancelled_by="SYSTEM_EVENT",
+            reason=f"Cancelamento automático via evento UserDeactivated: {reason}"
+        )
