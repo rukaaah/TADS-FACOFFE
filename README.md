@@ -169,9 +169,6 @@ As tabelas são criadas automaticamente na subida. Para escutar os eventos, rode
 python -m src.infrastructure.messaging.consumer
 ```
 
-> [!WARNING]
-> O consumidor não sobe no estado atual da `main`: [`listener.py`](participation/src/infrastructure/messaging/listener.py) importa `process_user_deactivation` de `application/services.py`, função que existe apenas na branch `refactor/dry-user-deactivation` e nunca chegou à `main`. O mesmo import derruba `tests/unit/test_listener.py`.
-
 Com o serviço no ar: Swagger em `http://localhost:3002/docs`, ReDoc em `/redoc` e *healthcheck* em `/health`.
 
 ### Configuração
@@ -218,7 +215,7 @@ python3 -m pytest
 A suíte usa `pytest` com `httpx`/`TestClient` e SQLite, cobrindo regras de negócio, RBAC, repositórios e o listener de mensageria. Nenhum teste precisa de RabbitMQ no ar.
 
 > [!NOTE]
-> Hoje a suíte não passa inteira. Além do `test_listener.py` citado acima, dois testes de `tests/integration/test_routers.py` retornam `500`: o `TestClient` é instanciado fora de um gerenciador de contexto, então o `lifespan` não roda e as tabelas não são criadas. Os outros 17 testes passam. Use `python3 -m pytest -v` para o detalhamento.
+> Dos 23 testes, 21 passam. Os dois que falham estão em `tests/integration/test_routers.py` e retornam `500` porque o `TestClient` é instanciado fora de um gerenciador de contexto: sem o `lifespan`, as tabelas não são criadas. O `test_join_participation_endpoint_returns_201` ainda espera `201` para uma cota inexistente, o que seria `404` mesmo com o esquema criado.
 
 ## Documentação
 
